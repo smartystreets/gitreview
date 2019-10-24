@@ -36,7 +36,8 @@ func collectGitRepositories(gitRoots []string) (gits []string) {
 func filterGitRepositories(paths []string) (gits []string) {
 	for _, path := range paths {
 		stat, err := os.Stat(path)
-		if err == os.ErrNotExist {
+		if err != nil {
+			log.Println("Couldn't resolve path (skipping):", err)
 			continue
 		}
 		if isGitRepository(path, stat) {
@@ -66,7 +67,9 @@ func execute(dir, command string) (string, error) {
 	return string(out), err
 }
 
-func prompt(message string) {
+func prompt(message string) string {
 	log.Println(message)
-	bufio.NewScanner(os.Stdin).Scan()
+	s := bufio.NewScanner(os.Stdin)
+	s.Scan()
+	return s.Text()
 }

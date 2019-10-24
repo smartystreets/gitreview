@@ -70,6 +70,17 @@ CLI Flags:
     	path to your pre-existing code review file. If the file exists
     	the final log entry will be appended to that file instead of stdout.
     	--> (default "SMARTY_REVIEW_LOG")
+  -repo-list string
+    	A colon-separated list of file paths, where each file contains a
+    	list of repositories to examine, with one repository on a line.
+    	-->
+  -review string
+    	Letter code of repository statuses to review; where (a) is ahead,
+    	origin/master (b) is behind origin/master, (e) has git errors,
+    	(f) has new fetched contents, and (m) is messy with uncommitted
+    	changes. (j) is like (f) except only 'smartystreets' repositories
+    	are considered
+    	--> (default "abejm")
   -roots string
     	The name of the environment variable containing colon-separated
     	path values to scan for any git repositories contained therein.

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/user"
+	"path/filepath"
 	"strings"
 )
 
@@ -15,6 +18,12 @@ type Config struct {
 	GitRepositoryRoots []string
 	GitGUILauncher     string
 	OutputFilePath     string
+	ReviewAhead        bool
+	ReviewBehind       bool
+	ReviewError        bool
+	ReviewFetched      bool
+	ReviewJournal      bool
+	ReviewMessy        bool
 }
 
 func ReadConfig() *Config {
@@ -22,6 +31,7 @@ func ReadConfig() *Config {
 
 	config := new(Config)
 
+	//noinspection GoUnhandledErrorResult
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, doc)
 		fmt.Fprintln(os.Stderr)
@@ -61,16 +71,51 @@ func ReadConfig() *Config {
 			"-->",
 	)
 
+	repoList := flag.String(
+		"repo-list", "", ""+
+			"A colon-separated list of file paths, where each file contains a\n"+
+			"list of repositories to examine, with one repository on a line.\n"+
+			"-->",
+	)
+
+	review := flag.String(
+		"review", "abejm", ""+
+			"Letter code of repository statuses to review; where (a) is ahead,\n"+
+			"origin/master (b) is behind origin/master, (e) has git errors,\n"+
+			"(f) has new fetched contents, and (m) is messy with uncommitted\n"+
+			"changes. (j) is like (f) except only 'smartystreets' repositories\n"+
+			"are considered\n"+
+			"-->",
+	)
+
 	flag.Parse()
 
+	config.ReviewAhead = strings.ContainsAny(*review, "aA")
+	config.ReviewBehind = strings.ContainsAny(*review, "bB")
+	config.ReviewError = strings.ContainsAny(*review, "eE")
+	config.ReviewFetched = strings.ContainsAny(*review, "fF")
+	config.ReviewJournal = strings.ContainsAny(*review, "jJ")
+	config.ReviewMessy = strings.ContainsAny(*review, "mM")
+
 	config.GitRepositoryPaths = flag.Args()
-	if len(config.GitRepositoryPaths) == 0 {
-		config.GitRepositoryRoots = strings.Split(os.Getenv(*gitRoots), ":")
+	roots := strings.Split(os.Getenv(*gitRoots), ":")
+
+	if len(*repoList) > 0 {
+		list := strings.Split(*repoList, ";")
+		for _, l := range list {
+			config.handleRepoFile(config.tryPaths(l, roots), roots)
+		}
 	}
+
+	if len(config.GitRepositoryPaths) == 0 {
+		config.GitRepositoryRoots = roots
+	}
+
 	if !config.GitFetch {
 		log.Println("Running git fetch with --dry-run (updated repositories will not be reviewed).")
 		gitFetchCommand += " --dry-run"
 	}
+
 	return config
 }
 
@@ -101,6 +146,56 @@ func (this *Config) OpenOutputWriter() io.WriteCloser {
 
 	log.Println("Final report will be written to stdout.")
 	return os.Stdout
+}
+
+func (this *Config) handleRepoFile(path string, prefixes []string) {
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("Path for repo-list cannot be opened: %s: %s", path, err)
+	}
+	defer file.Close()
+
+	i := 0
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if len(line) > 1 && line[0] != '#' {
+			line = this.tryPaths(line, prefixes)
+			this.GitRepositoryPaths = append(this.GitRepositoryPaths, line)
+			i++
+		}
+	}
+
+	if err = scanner.Err(); err != nil {
+		log.Printf("Error reading repo-list: %s: %s", path, err)
+	}
+
+	log.Printf("Added %d repositories from file: %s", i, path)
+}
+
+func (this *Config) tryPaths(path string, prefixes []string) string {
+	path = strings.TrimSpace(path)
+	cnt := len(path)
+	if cnt == 0 {
+		return ""
+	}
+
+	if strings.HasPrefix(path, "~/") {
+		usr, _ := user.Current()
+		dir := usr.HomeDir
+		path = filepath.Join(dir, path[2:])
+	}
+
+	if !filepath.IsAbs(path) {
+		for _, p := range prefixes {
+			test := filepath.Join(p, path)
+			if _, err := os.Stat(test); err == nil {
+				return test
+			}
+		}
+	}
+
+	return path
 }
 
 const rawDoc = `# gitreview

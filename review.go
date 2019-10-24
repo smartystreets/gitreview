@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -94,7 +95,26 @@ func (this *GitReviewer) canJournal(report *GitReport) bool {
 }
 
 func (this *GitReviewer) ReviewAll() {
-	reviewable := sortUniqueKeys(this.erred, this.messy, this.ahead, this.behind, this.fetched, this.journal)
+	var review []map[string]string
+	if this.config.ReviewError {
+		review = append(review, this.erred)
+	}
+	if this.config.ReviewMessy {
+		review = append(review, this.messy)
+	}
+	if this.config.ReviewAhead {
+		review = append(review, this.ahead)
+	}
+	if this.config.ReviewBehind {
+		review = append(review, this.behind)
+	}
+	if this.config.ReviewFetched {
+		review = append(review, this.fetched)
+	}
+	if this.config.ReviewJournal {
+		review = append(review, this.journal)
+	}
+	reviewable := sortUniqueKeys(review...)
 	if len(reviewable) == 0 {
 		log.Println("Nothing to review at this time.")
 		return
@@ -109,11 +129,22 @@ func (this *GitReviewer) ReviewAll() {
 	printMapKeys(this.skipped, "Repositories that were skipped: %d")
 	printStrings(reviewable, "Repositories to be reviewed: %d")
 
-	prompt(fmt.Sprintf("Press <ENTER> to initiate the review process (will open %d review windows)...", len(reviewable)))
+	in := prompt(fmt.Sprintf("Press <ENTER> to initiate the review process (will open %d review windows), or 'q' to quit...", len(reviewable)))
+	if len(in) > 0 && in[0] == 'q' {
+		os.Exit(0)
+	}
 
 	for _, path := range reviewable {
 		log.Printf("Opening %s at %s", this.config.GitGUILauncher, path)
-		err := exec.Command(this.config.GitGUILauncher, path).Run()
+		var err error
+		if this.config.GitGUILauncher == "gitk" {
+			tmp, _ := os.Getwd()
+			os.Chdir(path)
+			err = exec.Command(this.config.GitGUILauncher, "--all").Run()
+			os.Chdir(tmp)
+		} else {
+			err = exec.Command(this.config.GitGUILauncher, path).Run()
+		}
 		if err != nil {
 			log.Println("Failed to open git GUI:", err)
 		}
@@ -121,6 +152,7 @@ func (this *GitReviewer) ReviewAll() {
 	}
 }
 
+//noinspection GoUnhandledErrorResult
 func (this *GitReviewer) PrintCodeReviewLogEntry() {
 	if len(this.journal) == 0 {
 		return
